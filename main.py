@@ -226,9 +226,9 @@ def chat_with_peer():
             if count > 1:
                 ip_port = input("Multiple peers found. Please specify the IP and port (format: ip port): ").strip()
                 parts = ip_port.split()
-            if len(parts) == 2:
-                selected_peer = f"{parts[0]}:{parts[1]}"
-                w = True
+                if len(parts) == 2:
+                    selected_peer = f"{parts[0]}:{parts[1]}"
+                    w = True
         if not selected_peer:
             print("Peer not found, please try again.")
     original_print = builtins.print
@@ -319,6 +319,8 @@ def main():
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
+        elif choice == "6":
+            chat_with_peer()
         elif choice == "0":
             print("Exiting...")
             sys.exit(0)
