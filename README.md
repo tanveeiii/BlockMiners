@@ -7,7 +7,7 @@ This project implements a **Peer-to-Peer (P2P) Chat Application** in Python. It 
 1. Suryansh Nagar - 230003077
 2. Manan Jiwnani - 230001049
 3. Manan Nigam - 230051009
-4. Tanvi Agarval - 
+4. Tanvi Agarval - 230001075
 
 ## Features
 - Simultaneous sending and recieving of messages.
