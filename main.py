@@ -33,7 +33,7 @@ def start_server(port):
         threading.Thread(target=handle_client, args=(client_socket, address), daemon=True).start()
 
 def handle_client(client_socket, address):
-    """Handles messages from a connected peer and manages connection approval."""
+    """Continuously handles messages from a connected peer."""
     peer_key = None
     try:
         while True:
@@ -41,35 +41,26 @@ def handle_client(client_socket, address):
             if not data:
                 break
             message = data.decode().strip()
-            
-            # Handle incoming connection requests
+
+            # Auto-accept connection requests
             if message.startswith("CONNECT:"):
                 parts = message.split(":")
                 if len(parts) >= 3:
-                    _, peer_name, peer_listen_port = parts[0:3]
+                    _, peer_name, peer_listen_port = parts[:3]
                     peer_key = f"{address[0]}:{peer_listen_port}"
-                    print("Hello")
-                    print(f"Received connection request from {peer_name} at {peer_key}")
-                    print("HI")
-                    
-                    decision = input("Do you want to connect (Y/N): ").strip()
-                    
-                    if decision.upper() == "Y":
-                        accept_message = f"ACCEPT:{name}:{my_port}"
-                        client_socket.sendall(accept_message.encode())
-                        
-                        print(f"Connected to {peer_name} at {peer_key}")
-                        
-                        with connected_peers_lock:
-                            connected_peers[peer_key] = {"socket": client_socket, "name": peer_name}
-                        with active_peers_lock:
-                            active_peers.add(peer_key)
-                    
-                    else:
-                        decline_message = f"DECLINE:{name}"
-                        client_socket.sendall(decline_message.encode())
-                        print(f"Connection declined for {peer_name}")
+                    print(f"Auto-accepted connection from {peer_name} at {peer_key}")
 
+                    # Store connection
+                    with connected_peers_lock:
+                        connected_peers[peer_key] = {"socket": client_socket, "name": peer_name}
+                    with active_peers_lock:
+                        active_peers.add(peer_key)
+
+                    # Send ACK back to confirm connection
+                    ack_message = f"ACK:{name}:{my_port}"
+                    client_socket.sendall(ack_message.encode())
+
+            # Handle chat messages
             elif message.startswith("MESSAGE:"):
                 parts = message.split(":", 3)
                 if len(parts) < 4:
@@ -78,15 +69,33 @@ def handle_client(client_socket, address):
                     _, sender_name, sender_port, actual_message = parts
                     sender_key = f"{address[0]}:{sender_port}"
                     print(f"\n{sender_key} {sender_name}: {actual_message}")
+
                     with active_peers_lock:
                         active_peers.add(sender_key)
 
+            # Handle peer discovery
+            elif message.startswith("QUERY"):
+                with connected_peers_lock:
+                    peer_list = ",".join(connected_peers.keys())
+                response_message = f"PEERLIST:{peer_list}"
+                client_socket.sendall(response_message.encode())
+
+            elif message.startswith("PEERLIST:"):
+                _, peer_list = message.split(":", 1)
+                peers_from_peer = peer_list.split(",") if peer_list else []
+                with active_peers_lock:
+                    for p in peers_from_peer:
+                        if p:
+                            active_peers.add(p)
+                print("Updated discovered peers from query:")
+                with active_peers_lock:
+                    for p in active_peers:
+                        print(p)
             else:
                 print(f"Unknown message from {address}: {message}")
-    
+
     except Exception as e:
         print(f"Error handling client {address}: {e}")
-    
     finally:
         if peer_key:
             with connected_peers_lock:
@@ -122,7 +131,7 @@ def display_active_peers():
 
 # 3. connect to peer
 def connect_to_peer(ip, port):
-    """Initiates a connection request and waits for approval from the recipient."""
+    """Initiates a connection to an active peer and stores the persistent connection."""
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((ip, port))
@@ -131,36 +140,30 @@ def connect_to_peer(ip, port):
         connect_message = f"CONNECT:{name}:{my_port}"
         client.sendall(connect_message.encode())
 
-        # Wait for recipient response (Y/N)
-        response = client.recv(1024).decode().strip()
-        
-        if response.startswith("ACCEPT:"):
-            parts = response.split(":")
-            if len(parts) >= 3:
-                peer_name = parts[1]
-                peer_port = parts[2]
-                peer_key = f"{ip}:{peer_port}"
-                
-                print(f"Connected to {peer_name} at {peer_key}")
-                
-                with connected_peers_lock:
-                    connected_peers[peer_key] = {"socket": client, "name": peer_name}
-                with active_peers_lock:
-                    active_peers.add(peer_key)
-                
-                # Start a thread to continuously listen to this connection
-                threading.Thread(target=handle_client, args=(client, (ip, port)), daemon=True).start()
-                return
+        # Wait for acknowledgment
+        ack_data = client.recv(1024)
+        if ack_data:
+            ack_message = ack_data.decode().strip()
+            if ack_message.startswith("ACK:"):
+                parts = ack_message.split(":")
+                if len(parts) >= 3:
+                    peer_name = parts[1]
+                    peer_port = parts[2]
+                    peer_key = f"{ip}:{peer_port}"
+                    print(f"Connected to {peer_name} at {peer_key}")
 
-        elif response.startswith("DECLINE:"):
-            peer_name = response.split(":")[1]
-            print(f"Connection declined by {peer_name}")
-        
+                    # Store connection
+                    with connected_peers_lock:
+                        connected_peers[peer_key] = {"socket": client, "name": peer_name}
+                    with active_peers_lock:
+                        active_peers.add(peer_key)
+
+                    # Start a listener thread for this connection
+                    threading.Thread(target=handle_client, args=(client, (ip, port)), daemon=True).start()
+                    return
         client.close()
-    
     except Exception as e:
         print(f"Failed to connect to {ip}:{port} - {e}")
-
 
 # 4. show connected peers
 def display_connected_peers():
