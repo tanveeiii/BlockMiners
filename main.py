@@ -95,19 +95,19 @@ def handle_client(client_socket, address):
                     for p in active_peers:
                         print(p)
             
-            # Handle disconnection
-            elif message.strip().lower() == "exit":
-                print(f"\nPeer {peer_key} has disconnected.")
-                
+            elif message.startswith("EXIT"):
+                _ ,msg, peer_key = message.split(":", 2) 
+                print(f"\nPeer {address[0]}:{peer_key} has disconnected.")
                 with connected_peers_lock:
                     connected_peers.pop(peer_key, None)
                 with active_peers_lock:
                     active_peers.discard(peer_key) 
+                break
                 
-                break 
-
             else:
                 print(f"Unknown message from {address}: {message}")
+
+            
 
     except Exception as e:
         print(f"Error handling client {address}: {e}")
@@ -224,7 +224,10 @@ def query_peer_for_peers(peer_key):
             print("Peer not connected.")
 
 
-# 6. chat with peer
+# def querry_about_peers(peer_key):
+
+
+
 def chat_with_peer():
     w = False
     print("\nChoose with Whom you want to chat:")
@@ -283,7 +286,8 @@ def send_exit_to_all():
         for peer_key, peer_info in list(connected_peers.items()): 
             peer_socket = peer_info["socket"]
             try:
-                exit_message = "exit"
+                
+                exit_message = f"EXIT:{my_port}"
                 peer_socket.sendall(exit_message.encode())
                 print(f"Sent exit message to {peer_key}")
             except Exception as e:
@@ -355,13 +359,14 @@ def main():
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
-        elif choice == "5":
-            query_peer_for_peers()
+        # elif choice == "5":
+            # query_about_peers()
         elif choice == "6":
             chat_with_peer()
         elif choice == "0":
             send_exit_to_all()
             print("Exiting...")
+            send_exit_to_all()
             sys.exit(0)
         else:
             print("Invalid choice, please try again.")
