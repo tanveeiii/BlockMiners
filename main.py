@@ -34,6 +34,7 @@ def start_server(port):
 
 def handle_client(client_socket, address):
     """Continuously handles messages from a connected peer."""
+
     peer_key = None
     try:
         while True:
@@ -48,7 +49,7 @@ def handle_client(client_socket, address):
                 if len(parts) >= 3:
                     _, peer_name, peer_listen_port = parts[:3]
                     peer_key = f"{address[0]}:{peer_listen_port}"
-                    print(f"Auto-accepted connection from {peer_name} at {peer_key}")
+                    print(f"\nAuto-accepted connection from {peer_name} at {peer_key}")
 
                     # Store connection
                     with connected_peers_lock:
@@ -210,7 +211,7 @@ def chat_with_peer():
     w = False
     print("\nChoose with Whom you want to chat:")
     display_connected_peers()
-    print("If you want to go back typr 'back'")
+    print("If you want to go back type 'back'")
     idx=""
     selected_peer = None
     while not selected_peer:
