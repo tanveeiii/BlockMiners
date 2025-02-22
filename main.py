@@ -117,16 +117,16 @@ def connect_to_peers():
             if ack_message.startswith("ACK:"):
                 ack_parts = ack_message.split(":")
                 if len(ack_parts) >= 2:
-                    print(f"Connection accepted by {ack_parts[1]} at {ip}:{port}")
+                    print(f"\n\nConnection accepted by {ack_parts[1]} at {ip}:{port}")
             else:
-                print(f"No proper acknowledgment received from {ip}:{port}.")
+                print(f"\n\nNo proper acknowledgment received from {ip}:{port}.")
             client.close()
         except Exception as e:
-            print(f"Failed to connect to {ip}:{port} - {e}")
+            print(f"\n\nFailed to connect to {ip}:{port} - {e}")
 
 def main():
     global my_port, name
-    print("Enter your team name as mentioned in Google form:")
+    print("Block Miners P2P\n")
     name = input("Enter your name: ").strip()
     try:
         my_port = int(input("Enter your port number: ").strip())
@@ -144,7 +144,7 @@ def main():
         print("2. Query active peers")
         print("3. Connect to active peers")
         print("0. Quit")
-        choice = input("Enter your choice: ").strip()
+        choice = input("\nEnter your choice: ").strip()
 
         if choice == "1":
             target_ip = input("Enter the recipient's IP address: ").strip()
