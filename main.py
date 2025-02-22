@@ -96,7 +96,8 @@ def handle_client(client_socket, address):
                         print(p)
             
             elif message.startswith("EXIT"):
-                _ ,msg, peer_key = message.split(":", 2) 
+                msg, port = message.split(":", 1) 
+                peer_key = f"{address[0]}:{port}"
                 print(f"\nPeer {address[0]}:{peer_key} has disconnected.")
                 with connected_peers_lock:
                     connected_peers.pop(peer_key, None)
@@ -227,7 +228,7 @@ def query_peer_for_peers(peer_key):
 # def querry_about_peers(peer_key):
 
 
-
+# 6. chat with peer
 def chat_with_peer():
     w = False
     print("\nChoose with Whom you want to chat:")
@@ -280,6 +281,8 @@ def chat_with_peer():
         builtins.print = original_print
         print("Exiting chat mode. Messages from other peers have been stored in 'pending messages'.")
 
+
+# exit msg to all
 def send_exit_to_all():
     """Sends an 'exit' message to all connected peers before shutting down."""
     with connected_peers_lock:
@@ -292,13 +295,13 @@ def send_exit_to_all():
                 print(f"Sent exit message to {peer_key}")
             except Exception as e:
                 print(f"Failed to send exit message to {peer_key}: {e}")
-            finally:
-                peer_socket.close()
 
         connected_peers.clear()
 
     with active_peers_lock:
         active_peers.clear()
+
+    time.sleep(1)
 
 
 def main():
@@ -364,7 +367,6 @@ def main():
         elif choice == "6":
             chat_with_peer()
         elif choice == "0":
-            send_exit_to_all()
             print("Exiting...")
             send_exit_to_all()
             sys.exit(0)
