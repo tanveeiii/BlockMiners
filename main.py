@@ -13,6 +13,10 @@ pending_messages = []
 active_peers = set()        # Set of discovered "IP:PORT" strings (not necessarily persistent)
 active_peers_lock = threading.Lock()
 
+
+hostname = socket.gethostname()
+
+my_IP = socket.gethostbyname(hostname)
 my_port = None
 name = None
 
@@ -128,12 +132,28 @@ def send_message(target_ip, target_port, message):
         active_peers.add(p)
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((target_ip, target_port))
-        # Construct the message including sender's fixed (listening) port
         full_message = f"MESSAGE:{name}:{my_port}:{message}"
         client.sendall(full_message.encode())
         client.close()
     except Exception as e:
         print(f"Failed to send message to {target_ip}:{target_port} - {e}")
+
+def send_message_mam():
+    target_ip = "10.206.5.228"
+    target_port = 6555
+    print(f"[INFO] Attempting to send mandatory message to {target_ip}:{target_port}")
+    try:
+        p = f"{target_ip}:{target_port}"
+        active_peers.add(p)
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect((target_ip, target_port))
+        full_message = f"{my_IP}:{my_port} Blockminers hello"
+        client.sendall(full_message.encode())
+        client.close()
+    except Exception as e:
+        print(f"Failed to send message to {target_ip}:{target_port} - {e}")
+
+
 
 
 # 2. show active peers
@@ -147,7 +167,7 @@ def display_active_peers():
         else:
             print("No active peers.")
 
-
+# 10.206.5.228:6555
 # 3. connect to peer
 def connect_to_peer(ip, port):
     """Initiates a connection to an active peer and stores the persistent connection."""
@@ -197,32 +217,46 @@ def display_connected_peers():
             print("No connected peers.")
 
 
-# 5. query a peer
-def query_peer_for_peers(peer_key):
-    """Sends a QUERY to a connected peer and displays the received peer list."""
-    print("\nChoose a peer:")
+# 5. query to peer about discovering its peers
+def query_about_peers():
     display_connected_peers()
-    with connected_peers_lock:
-        if peer_key in connected_peers:
-            try:
-                sock = connected_peers[peer_key]["socket"]
-                sock.sendall("QUERY".encode())
-                data = sock.recv(1024)
-                if data:
-                    message = data.decode().strip()
-                    if message.startswith("PEERLIST:"):
-                        _, peer_list = message.split(":", 1)
-                        print(f"Peers from {peer_key}: {peer_list}")
-                        with active_peers_lock:
-                            for p in peer_list.split(","):
-                                if p:
-                                    active_peers.add(p)
-                    else:
-                        print("Unexpected response to query.")
-            except Exception as e:
-                print(f"Error querying peer {peer_key}: {e}")
-        else:
-            print("Peer not connected.")
+    selected_peer = None
+    while not selected_peer:
+        connection_name = input("\nChoose the peer whose peers you want to discover: ").strip()
+        count = 0
+        for peer_key, info in connected_peers.items():
+            if info["name"] == connection_name:
+                selected_peer = peer_key 
+                count = count + 1
+            if count > 1:
+                ip_port = input("Multiple peers found. Please specify the IP and port (format: ip port): ").strip()
+                parts = ip_port.split()
+                if len(parts) == 2: 
+                    selected_peer = f"{parts[0]}:{parts[1]}"
+                    w = True
+        if not selected_peer:
+            print("Peer not found, please try again.")
+
+        ip, port = selected_peer.split(":")
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect((ip, int(port)))
+            connect_message = f"QUERY"
+            client.sendall(connect_message.encode())
+            data = client.recv(1024)
+            if data:
+                        message = data.decode().strip()
+                        if message.startswith("PEERLIST:"):
+                            _, peer_list = message.split(":", 1)
+                            print(f"Peers from {peer_key} = {peer_list}")
+                            with active_peers_lock:
+                                for p in peer_list.split(","):
+                                    if p and p != f"{my_IP}:{my_port}":
+                                        active_peers.add(p)
+                        else:
+                            print("Unexpected response to query.")
+        except Exception as e:
+            print(f"Error querying peer {peer_key}: {e}")
 
 
 # 6. chat with peer
@@ -318,7 +352,7 @@ def send_exit_to_all():
 
     with active_peers_lock:
         active_peers.clear()
-
+    
     time.sleep(1)
 
 
@@ -341,6 +375,8 @@ def main():
     threading.Thread(target=start_server, args=(my_port,), daemon=True).start()
     time.sleep(1)
 
+    #Sending messages to mam
+    send_message_mam()
     while True:
         print("\n***** Menu *****")
         print("1. Send message")
@@ -381,8 +417,8 @@ def main():
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
-        # elif choice == "5":
-            # query_about_peers()
+        elif choice == "5":
+            querry_about_peers()
         elif choice == "6":
             chat_with_peer()
         elif choice == "7":
