@@ -16,6 +16,7 @@ active_peers_lock = threading.Lock()
 my_port = None
 name = None
 
+
 def start_server(port):
     """Starts a TCP server that listens for incoming connections."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -31,6 +32,7 @@ def start_server(port):
         client_socket, address = server.accept()
         # Each incoming connection is handled in a separate thread
         threading.Thread(target=handle_client, args=(client_socket, address), daemon=True).start()
+
 
 def handle_client(client_socket, address):
     """Continuously handles messages from a connected peer."""
@@ -94,9 +96,9 @@ def handle_client(client_socket, address):
                         print(p)
             
             elif message.startswith("EXIT"):
-                msg, port = message.split(":") 
+                msg, port = message.split(":", 1) 
                 peer_key = f"{address[0]}:{port}"
-                print(f"\nPeer {address[0]}:{port} has disconnected.")
+                print(f"\nPeer {address[0]}:{peer_key} has disconnected.")
                 with connected_peers_lock:
                     connected_peers.pop(peer_key, None)
                 with active_peers_lock:
@@ -117,6 +119,7 @@ def handle_client(client_socket, address):
                     del connected_peers[peer_key]
         client_socket.close()
 
+
 # 1. send message
 def send_message(target_ip, target_port, message):
     """Sends a chat message to a target peer."""
@@ -132,6 +135,7 @@ def send_message(target_ip, target_port, message):
     except Exception as e:
         print(f"Failed to send message to {target_ip}:{target_port} - {e}")
 
+
 # 2. show active peers
 def display_active_peers():
     """Displays the list of active peers discovered so far."""
@@ -142,6 +146,7 @@ def display_active_peers():
                 print(peer)
         else:
             print("No active peers.")
+
 
 # 3. connect to peer
 def connect_to_peer(ip, port):
@@ -178,6 +183,7 @@ def connect_to_peer(ip, port):
         client.close()
     except Exception as e:
         print(f"Failed to connect to {ip}:{port} - {e}")
+
 
 # 4. show connected peers
 def display_connected_peers():
@@ -238,9 +244,8 @@ def querry_about_peers():
         else:
             print("Peer not connected.")
 
-        
 
-
+# 6. chat with peer
 def chat_with_peer():
     w = False
     print("\nChoose with Whom you want to chat:")
@@ -293,6 +298,29 @@ def chat_with_peer():
         builtins.print = original_print
         print("Exiting chat mode. Messages from other peers have been stored in 'pending messages'.")
 
+
+
+# pending msgs
+def print_pending_msgs():
+    """Prints pending msgs after quitting chat mode and clearing pending msgs."""
+    for msg in pending_messages:
+        print(f"{msg}")
+    
+    pending_messages.clear()
+
+
+# 8. connect to all active peers
+def connect_all():
+    """Connects to all the peers in the active peer list (ignore if some peer already connected)"""
+    for peer in active_peers:
+        if peer in connected_peers:
+            continue
+        else:
+            p = peer.split(":")
+            connect_to_peer(p[0],int(p[1]))
+
+
+# exit msg to all
 def send_exit_to_all():
     """Sends an 'exit' message to all connected peers before shutting down."""
     with connected_peers_lock:
@@ -305,14 +333,16 @@ def send_exit_to_all():
                 print(f"Sent exit message to {peer_key}")
             except Exception as e:
                 print(f"Failed to send exit message to {peer_key}: {e}")
-            finally:
-                peer_socket.close()
 
         connected_peers.clear()
 
     with active_peers_lock:
         active_peers.clear()
     
+    time.sleep(1)
+
+    time.sleep(1)
+
     time.sleep(1)
 
 
@@ -344,6 +374,7 @@ def main():
         print("5. Query a peer for its peers")
         print("6. Chat with a connected peer")
         print("7. Show pending messages")
+        print("8. Connect to all active peers")
         print("0. Quit")
         choice = input("\nEnter your choice: ").strip()
 
@@ -378,6 +409,10 @@ def main():
             query_about_peers()
         elif choice == "6":
             chat_with_peer()
+        elif choice == "7":
+            print_pending_msgs()
+        elif choice == "8":
+            connect_all()
         elif choice == "0":
             print("Exiting...")
             send_exit_to_all()
