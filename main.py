@@ -111,7 +111,7 @@ def handle_client(client_socket, address):
                     del connected_peers[peer_key]
         client_socket.close()
 
-
+# 1. send message
 def send_message(target_ip, target_port, message):
     """Sends a chat message to a target peer."""
     try:
@@ -126,6 +126,16 @@ def send_message(target_ip, target_port, message):
     except Exception as e:
         print(f"Failed to send message to {target_ip}:{target_port} - {e}")
 
+# 2. show active peers
+def display_active_peers():
+    """Displays the list of active peers discovered so far."""
+    print("\nActive peers:")
+    with active_peers_lock:
+        if active_peers:
+            for peer in active_peers:
+                print(peer)
+        else:
+            print("No active peers.")
 
 def connect_to_peer(ip, port):
     """Initiates a connection to a peer and stores the persistent connection."""
@@ -203,16 +213,6 @@ def display_connected_peers():
         else:
             print("No connected peers.")
 
-def display_active_peers():
-    """Prints the list of discovered peers (from messages or queries)."""
-    print("\nDiscovered peers:")
-    with active_peers_lock:
-        if active_peers:
-            for peer in active_peers:
-                print(peer)
-        else:
-            print("No discovered peers.")
-
 def main():
     global my_port, name
     print("Block Miners P2P\n")
@@ -229,7 +229,7 @@ def main():
     while True:
         print("\n***** Menu *****")
         print("1. Send message")
-        print("2. Show connected peers")
+        print("2. Show active peers")
         print("3. Connect to a peer (by IP and port)")
         print("4. Query a connected peer for its peers")
         print("5. Show discovered peers")
@@ -243,15 +243,10 @@ def main():
             except ValueError:
                 print("Invalid port number.")
                 continue
-            message = input("Enter your message (type 'exit' to disconnect a peer): ").strip()
-            send_message(target_ip, target_port, message)
-        if choice == "9":
-            display_connected_peers()
-            peer_key = input("Enter the peer (IP:PORT) to message: ").strip()
             message = input("Enter your message: ").strip()
-            send_message_to_peer(peer_key, message)
+            send_message(target_ip, target_port, message)
         elif choice == "2":
-            display_connected_peers()
+            display_active_peers()
         elif choice == "3":
             target_ip = input("Enter the target IP: ").strip()
             try:
