@@ -13,9 +13,10 @@ pending_messages = []
 active_peers = set()        # Set of discovered "IP:PORT" strings (not necessarily persistent)
 active_peers_lock = threading.Lock()
 
-hostname = socket.gethostname()
-my_IP = socket.gethostbyname(hostname)
 
+hostname = socket.gethostname()
+
+my_IP = socket.gethostbyname(hostname)
 my_port = None
 name = None
 
@@ -216,16 +217,12 @@ def display_connected_peers():
             print("No connected peers.")
 
 
-def querry_about_peers():
-    print("\nChoose the peer whose peer you want to discover: ")
+# 5. query to peer about discovering its peers
+def query_about_peers():
     display_connected_peers()
-    temp = input("If you want to go back type 'exit;").strip()
     selected_peer = None
     while not selected_peer:
-        connection_name = input("Enter the name with whom you want to chat: ").strip()
-        if connection_name.lower() == "back":
-            print("Taking you back to menu")
-            return
+        connection_name = input("\nChoose the peer whose peers you want to discover: ").strip()
         count = 0
         for peer_key, info in connected_peers.items():
             if info["name"] == connection_name:
@@ -243,7 +240,7 @@ def querry_about_peers():
         ip, port = selected_peer.split(":")
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((ip, port))
+            client.connect((ip, int(port)))
             connect_message = f"QUERY"
             client.sendall(connect_message.encode())
             data = client.recv(1024)
@@ -251,16 +248,16 @@ def querry_about_peers():
                         message = data.decode().strip()
                         if message.startswith("PEERLIST:"):
                             _, peer_list = message.split(":", 1)
-                            print(f"Peers from {peer_key}: {peer_list}")
+                            print(f"Peers from {peer_key} = {peer_list}")
                             with active_peers_lock:
                                 for p in peer_list.split(","):
-                                    if p:
+                                    if p and p != f"{my_IP}:{my_port}":
                                         active_peers.add(p)
                         else:
                             print("Unexpected response to query.")
         except Exception as e:
             print(f"Error querying peer {peer_key}: {e}")
-        
+
 
 # 6. chat with peer
 def chat_with_peer():
