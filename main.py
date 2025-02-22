@@ -385,8 +385,8 @@ def main():
         print("4. Show connected peers")
         print("5. Query a peer for its peers")
         print("6. Chat with a connected peer")
-        print("7. Show pending messages")
-        print("8. Connect to all active peers")
+        # print("7. Show pending messages")
+        print("7. Connect to all active peers")
         print("0. Quit")
         choice = input("\nEnter your choice: ").strip()
 
@@ -418,12 +418,12 @@ def main():
         elif choice == "4":
             display_connected_peers()
         elif choice == "5":
-            querry_about_peers()
+            query_about_peers()
         elif choice == "6":
             chat_with_peer()
+        # elif choice == "7":
+        #     print_pending_msgs()
         elif choice == "7":
-            print_pending_msgs()
-        elif choice == "8":
             connect_all()
         elif choice == "0":
             print("Exiting...")
