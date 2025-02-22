@@ -2,14 +2,18 @@ import socket
 import threading
 import sys
 
-# Global Variables
-peers = set()                   # Store "IP:PORT" strings for known peers
-peers_lock = threading.Lock()   # Lock to synchronize access to peers set
+# Global structures
+connected_peers = {}            # key: "IP:PORT", value: {"socket": socket_obj, "name": peer_name}
+connected_peers_lock = threading.Lock()
+
+discovered_peers = set()        # Set of discovered "IP:PORT" strings (not necessarily persistent)
+discovered_peers_lock = threading.Lock()
+
 my_port = None
 name = None
 
 def start_server(port):
-    """Starts the TCP server to listen for incoming connections."""
+    """Starts a TCP server that listens for incoming connections."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         server.bind(("", port))
@@ -20,109 +24,178 @@ def start_server(port):
     print(f"Server listening on port {port}")
     
     while True:
-        try:
-            client_socket, address = server.accept()
-            # Handle each connection in a new thread
-            threading.Thread(target=handle_client, args=(client_socket, address), daemon=True).start()
-        except Exception as e:
-            print("Error accepting connection:", e)
-            break
+        client_socket, address = server.accept()
+        # Each incoming connection is handled in a separate thread
+        threading.Thread(target=handle_client, args=(client_socket, address), daemon=True).start()
 
 def handle_client(client_socket, address):
-    """Handles an incoming connection and processes a single message."""
+    """Continuously handles messages from a connected peer."""
+    peer_key = None
     try:
-        message = client_socket.recv(1024).decode().strip()
-        if not message:
-            return
-
-        # Process a connection request
-        if message.startswith("CONNECT:"):
-            parts = message.split(":")
-            if len(parts) >= 3:
-                _, peer_name, peer_listen_port = parts[0:3]
-                print(f"Received connection request from {peer_name} at {address[0]}:{peer_listen_port}")
-                with peers_lock:
-                    peers.add(f"{address[0]}:{peer_listen_port}")
-                ack_message = f"ACK:{name}:{my_port}"
-                client_socket.sendall(ack_message.encode())
-
-        # Process a query request (if needed, a peer can query our info)
-        elif message.startswith("QUERY"):
-            response_message = f"RESPONSE:{name}:{my_port}"
-            client_socket.sendall(response_message.encode())
-
-        # Process a regular chat message
-        elif message.startswith("MESSAGE:"):
-            # Expected format: MESSAGE:<sender_name>:<sender_listen_port>:<message>
-            parts = message.split(":", 3)
-            if len(parts) < 4:
-                print("Malformed MESSAGE received.")
-            else:
-                _, sender_name, sender_listen_port, actual_message = parts
-                if actual_message.strip().lower() == "exit":
-                    print(f"Peer {sender_name} at {address[0]}:{sender_listen_port} has disconnected.")
-                    with peers_lock:
-                        peers.discard(f"{address[0]}:{sender_listen_port}")
+        while True:
+            data = client_socket.recv(1024)
+            if not data:
+                break
+            message = data.decode().strip()
+            
+            # Process connection requests
+            if message.startswith("CONNECT:"):
+                parts = message.split(":")
+                if len(parts) >= 3:
+                    _, peer_name, peer_listen_port = parts[0:3]
+                    peer_key = f"{address[0]}:{peer_listen_port}"
+                    print(f"Received connection request from {peer_name} at {peer_key}")
+                    with connected_peers_lock:
+                        if peer_key not in connected_peers:
+                            connected_peers[peer_key] = {"socket": client_socket, "name": peer_name}
+                    with discovered_peers_lock:
+                        discovered_peers.add(peer_key)
+                    # Send ACK back on same connection
+                    ack_message = f"ACK:{name}:{my_port}"
+                    client_socket.sendall(ack_message.encode())
+            
+            # Process acknowledgment for our connection request
+            elif message.startswith("ACK:"):
+                parts = message.split(":")
+                if len(parts) >= 3:
+                    ack_peer_name = parts[1]
+                    ack_peer_port = parts[2]
+                    peer_key = f"{address[0]}:{ack_peer_port}"
+                    print(f"Connection accepted by {ack_peer_name} at {peer_key}")
+                    with connected_peers_lock:
+                        if peer_key not in connected_peers:
+                            connected_peers[peer_key] = {"socket": client_socket, "name": ack_peer_name}
+                    with discovered_peers_lock:
+                        discovered_peers.add(peer_key)
+            
+            # Process regular chat messages
+            elif message.startswith("MESSAGE:"):
+                parts = message.split(":", 3)
+                if len(parts) < 4:
+                    print("Malformed MESSAGE received.")
                 else:
-                    print(f"Message from {sender_name} ({address[0]}:{sender_listen_port}): {actual_message}")
-                    with peers_lock:
-                        peers.add(f"{address[0]}:{sender_listen_port}")
-        else:
-            print(f"Unknown message from {address}: {message}")
-
+                    _, sender_name, sender_port, actual_message = parts
+                    sender_key = f"{address[0]}:{sender_port}"
+                    print(f"Message from {sender_name} ({sender_key}): {actual_message}")
+                    with discovered_peers_lock:
+                        discovered_peers.add(sender_key)
+            
+            # When a connected peer queries for its known peers, reply with our list
+            elif message.startswith("QUERY"):
+                with connected_peers_lock:
+                    peer_list = ",".join(connected_peers.keys())
+                response_message = f"PEERLIST:{peer_list}"
+                client_socket.sendall(response_message.encode())
+            
+            # Process incoming peer list from a query
+            elif message.startswith("PEERLIST:"):
+                _, peer_list = message.split(":", 1)
+                peers_from_peer = peer_list.split(",") if peer_list else []
+                with discovered_peers_lock:
+                    for p in peers_from_peer:
+                        if p:
+                            discovered_peers.add(p)
+                print("Updated discovered peers from query:")
+                with discovered_peers_lock:
+                    for p in discovered_peers:
+                        print(p)
+            else:
+                print(f"Unknown message from {address}: {message}")
     except Exception as e:
         print(f"Error handling client {address}: {e}")
     finally:
+        # Clean up when connection closes
+        if peer_key:
+            with connected_peers_lock:
+                if peer_key in connected_peers:
+                    del connected_peers[peer_key]
         client_socket.close()
 
-def send_message(target_ip, target_port, message):
-    """Sends a chat message to a target peer."""
+def connect_to_peer(ip, port):
+    """Initiates a connection to a peer and stores the persistent connection."""
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.connect((target_ip, target_port))
-        # Construct the message including sender's fixed (listening) port
-        full_message = f"MESSAGE:{name}:{my_port}:{message}"
-        client.sendall(full_message.encode())
+        client.connect((ip, port))
+        connect_message = f"CONNECT:{name}:{my_port}"
+        client.sendall(connect_message.encode())
+        # Wait for ACK
+        ack_data = client.recv(1024)
+        if ack_data:
+            ack_message = ack_data.decode().strip()
+            if ack_message.startswith("ACK:"):
+                parts = ack_message.split(":")
+                if len(parts) >= 3:
+                    peer_name = parts[1]
+                    peer_port = parts[2]
+                    peer_key = f"{ip}:{peer_port}"
+                    print(f"Connection accepted by {peer_name} at {peer_key}")
+                    with connected_peers_lock:
+                        connected_peers[peer_key] = {"socket": client, "name": peer_name}
+                    with discovered_peers_lock:
+                        discovered_peers.add(peer_key)
+                    # Start a thread to listen on this connection continuously
+                    threading.Thread(target=handle_client, args=(client, (ip, port)), daemon=True).start()
+                    return
         client.close()
     except Exception as e:
-        print(f"Failed to send message to {target_ip}:{target_port} - {e}")
+        print(f"Failed to connect to {ip}:{port} - {e}")
 
-def query_peers():
-    """Displays the list of active peers discovered so far."""
-    print("\nActive peers discovered:")
-    with peers_lock:
-        if peers:
-            for peer in peers:
-                print(peer)
+def send_message_to_peer(peer_key, message):
+    """Sends a message over an existing connection to a connected peer."""
+    with connected_peers_lock:
+        if peer_key in connected_peers:
+            try:
+                sock = connected_peers[peer_key]["socket"]
+                full_message = f"MESSAGE:{name}:{my_port}:{message}"
+                sock.sendall(full_message.encode())
+            except Exception as e:
+                print(f"Error sending message to {peer_key}: {e}")
+        else:
+            print("Peer not found in connected peers.")
+
+def query_peer_for_peers(peer_key):
+    """Sends a QUERY to a connected peer and displays the received peer list."""
+    with connected_peers_lock:
+        if peer_key in connected_peers:
+            try:
+                sock = connected_peers[peer_key]["socket"]
+                sock.sendall("QUERY".encode())
+                data = sock.recv(1024)
+                if data:
+                    message = data.decode().strip()
+                    if message.startswith("PEERLIST:"):
+                        _, peer_list = message.split(":", 1)
+                        print(f"Peers from {peer_key}: {peer_list}")
+                        with discovered_peers_lock:
+                            for p in peer_list.split(","):
+                                if p:
+                                    discovered_peers.add(p)
+                    else:
+                        print("Unexpected response to query.")
+            except Exception as e:
+                print(f"Error querying peer {peer_key}: {e}")
+        else:
+            print("Peer not connected.")
+
+def display_connected_peers():
+    """Prints the list of peers you are connected to."""
+    print("\nConnected peers:")
+    with connected_peers_lock:
+        if connected_peers:
+            for key, info in connected_peers.items():
+                print(f"{info['name']} at {key}")
         else:
             print("No connected peers.")
 
-def connect_to_peers():
-    """Connects to each active peer and sends a connection request."""
-    with peers_lock:
-        current_peers = list(peers)
-    if not current_peers:
-        print("No active peers to connect.")
-        return
-
-    for peer in current_peers:
-        ip, port_str = peer.split(":")
-        try:
-            port = int(port_str)
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((ip, port))
-            connect_message = f"CONNECT:{name}:{my_port}"
-            client.sendall(connect_message.encode())
-            ack_message = client.recv(1024).decode().strip()
-            if ack_message.startswith("ACK:"):
-                ack_parts = ack_message.split(":")
-                if len(ack_parts) >= 2:
-                    print(f"Connection accepted by {ack_parts[1]} at {ip}:{port}")
-            else:
-                print(f"No proper acknowledgment received from {ip}:{port}.")
-            client.close()
-        except Exception as e:
-            print(f"Failed to connect to {ip}:{port} - {e}")
+def display_discovered_peers():
+    """Prints the list of discovered peers (from messages or queries)."""
+    print("\nDiscovered peers:")
+    with discovered_peers_lock:
+        if discovered_peers:
+            for peer in discovered_peers:
+                print(peer)
+        else:
+            print("No discovered peers.")
 
 def main():
     global my_port, name
@@ -134,31 +207,40 @@ def main():
         print("Invalid port number.")
         sys.exit(1)
 
-    # Start the server thread (daemon thread so it exits when main thread ends)
+    # Start the server thread for incoming connections
     threading.Thread(target=start_server, args=(my_port,), daemon=True).start()
 
-    # Main menu loop
     while True:
         print("\n***** Menu *****")
-        print("1. Send message")
-        print("2. Query active peers")
-        print("3. Connect to active peers")
+        print("1. Send message to a connected peer")
+        print("2. Show connected peers")
+        print("3. Connect to a peer (by IP and port)")
+        print("4. Query a connected peer for its peers")
+        print("5. Show discovered peers")
         print("0. Quit")
         choice = input("Enter your choice: ").strip()
 
         if choice == "1":
-            target_ip = input("Enter the recipient's IP address: ").strip()
+            display_connected_peers()
+            peer_key = input("Enter the peer (IP:PORT) to message: ").strip()
+            message = input("Enter your message: ").strip()
+            send_message_to_peer(peer_key, message)
+        elif choice == "2":
+            display_connected_peers()
+        elif choice == "3":
+            target_ip = input("Enter the target IP: ").strip()
             try:
-                target_port = int(input("Enter the recipient's port number: ").strip())
+                target_port = int(input("Enter the target port: ").strip())
             except ValueError:
                 print("Invalid port number.")
                 continue
-            message = input("Enter your message (type 'exit' to disconnect a peer): ").strip()
-            send_message(target_ip, target_port, message)
-        elif choice == "2":
-            query_peers()
-        elif choice == "3":
-            connect_to_peers()
+            connect_to_peer(target_ip, target_port)
+        elif choice == "4":
+            display_connected_peers()
+            peer_key = input("Enter the peer (IP:PORT) to query: ").strip()
+            query_peer_for_peers(peer_key)
+        elif choice == "5":
+            display_discovered_peers()
         elif choice == "0":
             print("Exiting...")
             sys.exit(0)
