@@ -92,8 +92,20 @@ def handle_client(client_socket, address):
                 with active_peers_lock:
                     for p in active_peers:
                         print(p)
+            
+            elif message.startswith("EXIT"):
+                _ ,msg, peer_key = message.split(":", 2) 
+                print(f"\nPeer {address[0]}:{peer_key} has disconnected.")
+                with connected_peers_lock:
+                    connected_peers.pop(peer_key, None)
+                with active_peers_lock:
+                    active_peers.discard(peer_key) 
+                break
+                
             else:
                 print(f"Unknown message from {address}: {message}")
+
+            
 
     except Exception as e:
         print(f"Error handling client {address}: {e}")
@@ -204,6 +216,7 @@ def query_peer_for_peers(peer_key):
             print("Peer not connected.")
 
 
+# def querry_about_peers(peer_key):
 
 
 
@@ -227,7 +240,7 @@ def chat_with_peer():
             if count > 1:
                 ip_port = input("Multiple peers found. Please specify the IP and port (format: ip port): ").strip()
                 parts = ip_port.split()
-                if len(parts) == 2:
+                if len(parts) == 2: 
                     selected_peer = f"{parts[0]}:{parts[1]}"
                     w = True
         if not selected_peer:
@@ -259,7 +272,25 @@ def chat_with_peer():
         builtins.print = original_print
         print("Exiting chat mode. Messages from other peers have been stored in 'pending messages'.")
 
+def send_exit_to_all():
+    """Sends an 'exit' message to all connected peers before shutting down."""
+    with connected_peers_lock:
+        for peer_key, peer_info in list(connected_peers.items()): 
+            peer_socket = peer_info["socket"]
+            try:
+                
+                exit_message = f"EXIT:{my_port}"
+                peer_socket.sendall(exit_message.encode())
+                print(f"Sent exit message to {peer_key}")
+            except Exception as e:
+                print(f"Failed to send exit message to {peer_key}: {e}")
+            finally:
+                peer_socket.close()
 
+        connected_peers.clear()
+
+    with active_peers_lock:
+        active_peers.clear()
 
 
 def main():
@@ -320,10 +351,13 @@ def main():
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
+        # elif choice == "5":
+            # query_about_peers()
         elif choice == "6":
             chat_with_peer()
         elif choice == "0":
             print("Exiting...")
+            send_exit_to_all()
             sys.exit(0)
         else:
             print("Invalid choice, please try again.")
