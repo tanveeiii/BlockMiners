@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import time
 
 # Global structures
 connected_peers = {}            # key: "IP:PORT", value: {"socket": socket_obj, "name": peer_name}
@@ -29,7 +30,7 @@ def start_server(port):
         threading.Thread(target=handle_client, args=(client_socket, address), daemon=True).start()
 
 def handle_client(client_socket, address):
-    """Continuously handles messages from a connected peer."""
+    """Handles messages from a connected peer and manages connection approval."""
     peer_key = None
     try:
         while True:
@@ -38,37 +39,34 @@ def handle_client(client_socket, address):
                 break
             message = data.decode().strip()
             
-            # Process connection requests
+            # Handle incoming connection requests
             if message.startswith("CONNECT:"):
                 parts = message.split(":")
                 if len(parts) >= 3:
                     _, peer_name, peer_listen_port = parts[0:3]
                     peer_key = f"{address[0]}:{peer_listen_port}"
+                    
                     print(f"Received connection request from {peer_name} at {peer_key}")
-                    with connected_peers_lock:
-                        if peer_key not in connected_peers:
+                    
+                    # Ask user whether to accept or decline
+                    decision = input(f"Accept connection request from {peer_name} at {peer_key}? (Y/N): ").strip().upper()
+                    
+                    if decision == "Y":
+                        accept_message = f"ACCEPT:{name}:{my_port}"
+                        client_socket.sendall(accept_message.encode())
+                        
+                        print(f"Connected to {peer_name} at {peer_key}")
+                        
+                        with connected_peers_lock:
                             connected_peers[peer_key] = {"socket": client_socket, "name": peer_name}
-                    with active_peers_lock:
-                        active_peers.add(peer_key)
-                    # Send ACK back on same connection
-                    ack_message = f"ACK:{name}:{my_port}"
-                    client_socket.sendall(ack_message.encode())
-            
-            # Process acknowledgment for our connection request
-            elif message.startswith("ACK:"):
-                parts = message.split(":")
-                if len(parts) >= 3:
-                    ack_peer_name = parts[1]
-                    ack_peer_port = parts[2]
-                    peer_key = f"{address[0]}:{ack_peer_port}"
-                    print(f"Connection accepted by {ack_peer_name} at {peer_key}")
-                    with connected_peers_lock:
-                        if peer_key not in connected_peers:
-                            connected_peers[peer_key] = {"socket": client_socket, "name": ack_peer_name}
-                    with active_peers_lock:
-                        active_peers.add(peer_key)
-            
-            # Process regular chat messages
+                        with active_peers_lock:
+                            active_peers.add(peer_key)
+                    
+                    else:
+                        decline_message = f"DECLINE:{name}"
+                        client_socket.sendall(decline_message.encode())
+                        print(f"Connection declined for {peer_name}")
+
             elif message.startswith("MESSAGE:"):
                 parts = message.split(":", 3)
                 if len(parts) < 4:
@@ -76,35 +74,17 @@ def handle_client(client_socket, address):
                 else:
                     _, sender_name, sender_port, actual_message = parts
                     sender_key = f"{address[0]}:{sender_port}"
-                    print(f"\n{sender_key} {sender_name} {actual_message}")
+                    print(f"\n{sender_key} {sender_name}: {actual_message}")
                     with active_peers_lock:
                         active_peers.add(sender_key)
-            
-            # When a connected peer queries for its known peers, reply with our list
-            elif message.startswith("QUERY"):
-                with connected_peers_lock:
-                    peer_list = ",".join(connected_peers.keys())
-                response_message = f"PEERLIST:{peer_list}"
-                client_socket.sendall(response_message.encode())
-            
-            # Process incoming peer list from a query
-            elif message.startswith("PEERLIST:"):
-                _, peer_list = message.split(":", 1)
-                peers_from_peer = peer_list.split(",") if peer_list else []
-                with active_peers_lock:
-                    for p in peers_from_peer:
-                        if p:
-                            active_peers.add(p)
-                print("Updated discovered peers from query:")
-                with active_peers_lock:
-                    for p in active_peers:
-                        print(p)
+
             else:
                 print(f"Unknown message from {address}: {message}")
+    
     except Exception as e:
         print(f"Error handling client {address}: {e}")
+    
     finally:
-        # Clean up when connection closes
         if peer_key:
             with connected_peers_lock:
                 if peer_key in connected_peers:
@@ -137,47 +117,60 @@ def display_active_peers():
         else:
             print("No active peers.")
 
+# 3. connect to peer
 def connect_to_peer(ip, port):
-    """Initiates a connection to a peer and stores the persistent connection."""
+    """Initiates a connection request and waits for approval from the recipient."""
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((ip, port))
+        
+        # Send connection request
         connect_message = f"CONNECT:{name}:{my_port}"
         client.sendall(connect_message.encode())
-        # Wait for ACK
-        ack_data = client.recv(1024)
-        if ack_data:
-            ack_message = ack_data.decode().strip()
-            if ack_message.startswith("ACK:"):
-                parts = ack_message.split(":")
-                if len(parts) >= 3:
-                    peer_name = parts[1]
-                    peer_port = parts[2]
-                    peer_key = f"{ip}:{peer_port}"
-                    print(f"Connection accepted by {peer_name} at {peer_key}")
-                    with connected_peers_lock:
-                        connected_peers[peer_key] = {"socket": client, "name": peer_name}
-                    with active_peers_lock:
-                        active_peers.add(peer_key)
-                    # Start a thread to listen on this connection continuously
-                    threading.Thread(target=handle_client, args=(client, (ip, port)), daemon=True).start()
-                    return
+
+        # Wait for recipient response (Y/N)
+        response = client.recv(1024).decode().strip()
+        
+        if response.startswith("ACCEPT:"):
+            parts = response.split(":")
+            if len(parts) >= 3:
+                peer_name = parts[1]
+                peer_port = parts[2]
+                peer_key = f"{ip}:{peer_port}"
+                
+                print(f"Connected to {peer_name} at {peer_key}")
+                
+                with connected_peers_lock:
+                    connected_peers[peer_key] = {"socket": client, "name": peer_name}
+                with active_peers_lock:
+                    active_peers.add(peer_key)
+                
+                # Start a thread to continuously listen to this connection
+                threading.Thread(target=handle_client, args=(client, (ip, port)), daemon=True).start()
+                return
+
+        elif response.startswith("DECLINE:"):
+            peer_name = response.split(":")[1]
+            print(f"Connection declined by {peer_name}")
+        
         client.close()
+    
     except Exception as e:
         print(f"Failed to connect to {ip}:{port} - {e}")
 
-def send_message_to_peer(peer_key, message):
-    """Sends a message over an existing connection to a connected peer."""
+
+# 4. show connected peers
+def display_connected_peers():
+    """Prints the list of peers you are connected to."""
+    print("\nConnected peers:")
     with connected_peers_lock:
-        if peer_key in connected_peers:
-            try:
-                sock = connected_peers[peer_key]["socket"]
-                full_message = f"MESSAGE:{name}:{my_port}:{message}"
-                sock.sendall(full_message.encode())
-            except Exception as e:
-                print(f"Error sending message to {peer_key}: {e}")
+        if connected_peers:
+            for key, info in connected_peers.items():
+                print(f"{info['name']} at {key}")
         else:
-            print("Peer not found in connected peers.")
+            print("No connected peers.")
+
+
 
 def query_peer_for_peers(peer_key):
     """Sends a QUERY to a connected peer and displays the received peer list."""
@@ -203,20 +196,16 @@ def query_peer_for_peers(peer_key):
         else:
             print("Peer not connected.")
 
-def display_connected_peers():
-    """Prints the list of peers you are connected to."""
-    print("\nConnected peers:")
-    with connected_peers_lock:
-        if connected_peers:
-            for key, info in connected_peers.items():
-                print(f"{info['name']} at {key}")
-        else:
-            print("No connected peers.")
 
 def main():
     global my_port, name
     print("Block Miners P2P\n")
-    name = input("Enter your name: ").strip()
+    name = input("Enter your name (without any space): ").strip()
+    space = name.find(" ")
+    while(space != -1):
+        name = input("!Please enter the name without any spaces: ").strip()
+        space = name.find(" ")
+    
     try:
         my_port = int(input("Enter your port number: ").strip())
     except ValueError:
@@ -225,14 +214,17 @@ def main():
 
     # Start the server thread for incoming connections
     threading.Thread(target=start_server, args=(my_port,), daemon=True).start()
+    time.sleep(1)
 
     while True:
         print("\n***** Menu *****")
         print("1. Send message")
         print("2. Show active peers")
-        print("3. Connect to a peer (by IP and port)")
-        print("4. Query a connected peer for its peers")
-        print("5. Show discovered peers")
+        print("3. Connect to an active peer")
+        print("4. Show connected peers")
+        print("5. Query a peer for its peers")
+        print("6. Chat with a connected peer")
+        print("7. Show pending messages")
         print("0. Quit")
         choice = input("\nEnter your choice: ").strip()
 
@@ -248,19 +240,21 @@ def main():
         elif choice == "2":
             display_active_peers()
         elif choice == "3":
-            target_ip = input("Enter the target IP: ").strip()
+            display_active_peers()
+            p = input("\nEnter IP:PORT: ").strip()
+            target = p.split(':')
+            if len(target) != 2:
+                print("Invalid format. Please enter in IP:PORT format.")
+                continue
+            target_ip = target[0]
             try:
-                target_port = int(input("Enter the target port: ").strip())
+                target_port = int(target[1])
             except ValueError:
                 print("Invalid port number.")
                 continue
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
-            peer_key = input("Enter the peer (IP:PORT) to query: ").strip()
-            query_peer_for_peers(peer_key)
-        elif choice == "5":
-            display_active_peers()
         elif choice == "0":
             print("Exiting...")
             sys.exit(0)
