@@ -258,60 +258,6 @@ def chat_with_peer():
 
 
 
-
-def chat_with_peer():
-    w = False
-    print("\nChoose with Whom you want to chat:")
-    display_connected_peers()
-    print("If you want to go back typr 'back'")
-    idx=""
-    selected_peer = None
-    while not selected_peer:
-        connection_name = input("Enter the name with whom you want to chat: ").strip()
-        if connection_name.lower() == "back":
-            print("Taking you back to menu")
-            return
-        count = 0
-        for peer_key, info in connected_peers.items():
-            if info["name"] == connection_name:
-                selected_peer = peer_key 
-                count = count + 1
-            if count > 1:
-                ip_port = input("Multiple peers found. Please specify the IP and port (format: ip port): ").strip()
-                parts = ip_port.split()
-            if len(parts) == 2:
-                selected_peer = f"{parts[0]}:{parts[1]}"
-                w = True
-        if not selected_peer:
-            print("Peer not found, please try again.")
-    original_print = builtins.print
-    def custom_print(*args, **kwags):
-        message.join(str(arg) for arg in args)
-        if(message.startswith("\n")):
-            tokens = message.strip().split(maxsplit = 1)
-            if tokens and tokens[0] != selected_peer:
-                pending_messages.append(message)
-                return
-            else:
-                original_print(*args, **kwags)
-                original_print("Send message (type 'exit' to leave chat): ", end="", flush=True)
-        
-        original_print(*args, **kwags)
-    builtins.print = custom_print
-
-    try:
-        while True:
-            message = input("Send message (type 'exit' to leave chat): ").strip()
-            if message.lower() == "exit":
-                break
-            
-            ip, port = selected_peer.split(":")
-            send_message(ip, int(port), message)
-    finally:
-        builtins.print = original_print
-        print("Exiting chat mode. Messages from other peers have been stored in 'pending messages'.")
-
-
 def main():
     global my_port, name
     print("Block Miners P2P\n")
