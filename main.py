@@ -48,13 +48,13 @@ def handle_client(client_socket, address):
                 if len(parts) >= 3:
                     _, peer_name, peer_listen_port = parts[0:3]
                     peer_key = f"{address[0]}:{peer_listen_port}"
-                    
+                    print("Hello")
                     print(f"Received connection request from {peer_name} at {peer_key}")
+                    print("HI")
                     
-                    # Ask user whether to accept or decline
-                    decision = input(f"Accept connection request from {peer_name} at {peer_key}? (Y/N): ").strip().upper()
+                    decision = input("Do you want to connect (Y/N): ").strip()
                     
-                    if decision == "Y":
+                    if decision.upper() == "Y":
                         accept_message = f"ACCEPT:{name}:{my_port}"
                         client_socket.sendall(accept_message.encode())
                         
