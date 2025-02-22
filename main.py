@@ -225,9 +225,6 @@ def query_peer_for_peers(peer_key):
             print("Peer not connected.")
 
 
-# def querry_about_peers(peer_key):
-
-
 # 6. chat with peer
 def chat_with_peer():
     w = False
@@ -282,6 +279,27 @@ def chat_with_peer():
         print("Exiting chat mode. Messages from other peers have been stored in 'pending messages'.")
 
 
+
+# pending msgs
+def print_pending_msgs():
+    """Prints pending msgs after quitting chat mode and clearing pending msgs."""
+    for msg in pending_messages:
+        print(f"{msg}")
+    
+    pending_messages.clear()
+
+
+# 8. connect to all active peers
+def connect_all():
+    """Connects to all the peers in the active peer list (ignore if some peer already connected)"""
+    for peer in active_peers:
+        if peer in connected_peers:
+            continue
+        else:
+            p = peer.split(":")
+            connect_to_peer(p[0],int(p[1]))
+
+
 # exit msg to all
 def send_exit_to_all():
     """Sends an 'exit' message to all connected peers before shutting down."""
@@ -332,6 +350,7 @@ def main():
         print("5. Query a peer for its peers")
         print("6. Chat with a connected peer")
         print("7. Show pending messages")
+        print("8. Connect to all active peers")
         print("0. Quit")
         choice = input("\nEnter your choice: ").strip()
 
@@ -366,6 +385,10 @@ def main():
             # query_about_peers()
         elif choice == "6":
             chat_with_peer()
+        elif choice == "7":
+            print_pending_msgs()
+        elif choice == "8":
+            connect_all()
         elif choice == "0":
             print("Exiting...")
             send_exit_to_all()
