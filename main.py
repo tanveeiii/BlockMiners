@@ -94,8 +94,9 @@ def handle_client(client_socket, address):
                         print(p)
             
             elif message.startswith("EXIT"):
-                _ ,msg, peer_key = message.split(":", 2) 
-                print(f"\nPeer {address[0]}:{peer_key} has disconnected.")
+                msg, port = message.split(":") 
+                peer_key = f"{address[0]}:{port}"
+                print(f"\nPeer {address[0]}:{port} has disconnected.")
                 with connected_peers_lock:
                     connected_peers.pop(peer_key, None)
                 with active_peers_lock:
@@ -190,34 +191,54 @@ def display_connected_peers():
             print("No connected peers.")
 
 
+def querry_about_peers():
+    print("\nChoose the peer whose peer you want to discover: ")
+    display_connected_peers()
+    temp = input("If you want to go back type 'exit;").strip()
+    selected_peer = None
+    while not selected_peer:
+        connection_name = input("Enter the name with whom you want to chat: ").strip()
+        if connection_name.lower() == "back":
+            print("Taking you back to menu")
+            return
+        count = 0
+        for peer_key, info in connected_peers.items():
+            if info["name"] == connection_name:
+                selected_peer = peer_key 
+                count = count + 1
+            if count > 1:
+                ip_port = input("Multiple peers found. Please specify the IP and port (format: ip port): ").strip()
+                parts = ip_port.split()
+                if len(parts) == 2: 
+                    selected_peer = f"{parts[0]}:{parts[1]}"
+                    w = True
+        if not selected_peer:
+            print("Peer not found, please try again.")
 
-def query_peer_for_peers(peer_key):
-    """Sends a QUERY to a connected peer and displays the received peer list."""
-    with connected_peers_lock:
-        if peer_key in connected_peers:
-            try:
-                sock = connected_peers[peer_key]["socket"]
-                sock.sendall("QUERY".encode())
-                data = sock.recv(1024)
-                if data:
-                    message = data.decode().strip()
-                    if message.startswith("PEERLIST:"):
-                        _, peer_list = message.split(":", 1)
-                        print(f"Peers from {peer_key}: {peer_list}")
-                        with active_peers_lock:
-                            for p in peer_list.split(","):
-                                if p:
-                                    active_peers.add(p)
-                    else:
-                        print("Unexpected response to query.")
-            except Exception as e:
-                print(f"Error querying peer {peer_key}: {e}")
+        ip, port = selected_peer.split(":")
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect((ip, port))
+            connect_message = f"Query"
+            client.sendall(connect_message.encode())
+            data = client.recv(1024)
+            if data:
+                        message = data.decode().strip()
+                        if message.startswith("PEERLIST:"):
+                            _, peer_list = message.split(":", 1)
+                            print(f"Peers from {peer_key}: {peer_list}")
+                            with active_peers_lock:
+                                for p in peer_list.split(","):
+                                    if p:
+                                        active_peers.add(p)
+                        else:
+                            print("Unexpected response to query.")
+        except Exception as e:
+            print(f"Error querying peer {peer_key}: {e}")
         else:
             print("Peer not connected.")
 
-
-# def querry_about_peers(peer_key):
-
+        
 
 
 def chat_with_peer():
@@ -291,6 +312,8 @@ def send_exit_to_all():
 
     with active_peers_lock:
         active_peers.clear()
+    
+    time.sleep(1)
 
 
 def main():
@@ -351,8 +374,8 @@ def main():
             connect_to_peer(target_ip, target_port)
         elif choice == "4":
             display_connected_peers()
-        # elif choice == "5":
-            # query_about_peers()
+        elif choice == "5":
+            query_about_peers()
         elif choice == "6":
             chat_with_peer()
         elif choice == "0":
